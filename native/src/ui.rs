@@ -7,6 +7,49 @@ use tray_icon::{menu::{Menu, MenuEvent, MenuItem}, Icon, TrayIcon, TrayIconBuild
 #[cfg(windows)]
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Language { Chinese, English }
+
+impl Language {
+    fn text(self, chinese: &'static str, english: &'static str) -> &'static str {
+        match self { Self::Chinese => chinese, Self::English => english }
+    }
+    fn is_english(self) -> bool { self == Self::English }
+    fn from_setting(value: &str) -> Option<Self> {
+        match value.trim() { "zh-CN" => Some(Self::Chinese), "en" => Some(Self::English), _ => None }
+    }
+    fn setting(self) -> &'static str { match self { Self::Chinese => "zh-CN", Self::English => "en" } }
+    fn title(self) -> &'static str { self.text("指定人声提取", "Voice Isolation") }
+}
+
+fn language_path() -> PathBuf {
+    std::env::var_os("LOCALAPPDATA").map(PathBuf::from).unwrap_or_else(std::env::temp_dir)
+        .join("VoiceIsolation").join("rust_language_v1.txt")
+}
+
+fn language_from_windows_langid(id: u16) -> Language {
+    if id & 0x03ff == 0x04 { Language::Chinese } else { Language::English }
+}
+
+#[cfg(windows)]
+fn system_language() -> Language {
+    #[link(name = "kernel32")]
+    extern "system" { fn GetUserDefaultUILanguage() -> u16; }
+    language_from_windows_langid(unsafe { GetUserDefaultUILanguage() })
+}
+#[cfg(not(windows))]
+fn system_language() -> Language { Language::English }
+
+fn load_language() -> Language {
+    std::fs::read_to_string(language_path()).ok().and_then(|s| Language::from_setting(&s)).unwrap_or_else(system_language)
+}
+pub(crate) fn preferred_english() -> bool { load_language().is_english() }
+fn save_language(language: Language) -> std::io::Result<()> {
+    let path = language_path();
+    if let Some(parent) = path.parent() { std::fs::create_dir_all(parent)?; }
+    std::fs::write(path, language.setting())
+}
+
 #[derive(Clone, Copy)]
 enum TrayAction { Show, Quit }
 
@@ -86,10 +129,10 @@ struct Tray {
 }
 
 impl Tray {
-    fn new() -> Result<Self, Box<dyn std::error::Error>> {
+    fn new(language: Language) -> Result<Self, Box<dyn std::error::Error>> {
         let menu = Menu::new();
-        let show = MenuItem::new("显示窗口", true, None);
-        let quit = MenuItem::new("退出软件", true, None);
+        let show = MenuItem::new(language.text("显示窗口", "Show window"), true, None);
+        let quit = MenuItem::new(language.text("退出软件", "Exit"), true, None);
         menu.append(&show)?;
         menu.append(&quit)?;
         // A small self-contained blue microphone icon, no external asset needed.
@@ -103,15 +146,22 @@ impl Tray {
             if inside { pixels[i..i+4].copy_from_slice(if mic { &[255,255,255,255] } else { &[38,105,205,255] }); }
         }}
         let icon = Icon::from_rgba(pixels, 32, 32)?;
-        let icon = TrayIconBuilder::new().with_tooltip("指定人声提取")
+        let icon = TrayIconBuilder::new().with_tooltip(language.title())
             .with_icon(icon).with_menu(Box::new(menu)).build()?;
         Ok(Self { _icon: icon, show, quit })
+    }
+
+    fn set_language(&self, language: Language) {
+        self.show.set_text(language.text("显示窗口", "Show window"));
+        self.quit.set_text(language.text("退出软件", "Exit"));
+        let _ = self._icon.set_tooltip(Some(language.title()));
     }
 }
 
 struct App {
     commands: Sender<Command>, events: Receiver<Event>, tray: Option<Tray>,
     tray_actions: Option<Receiver<TrayAction>>,
+    language: Language,
     inputs: Vec<String>, outputs: Vec<String>, input: usize, output: usize,
     comparison_output: usize, reference: PathBuf, strong_music: bool, block_size: usize, use_gpu: bool,
     gpu_adapters: Vec<(u32, u64, String)>, gpu_adapter: Option<(u32, u64)>, gpu_error: Option<String>,
@@ -178,11 +228,12 @@ impl App {
         style.text_styles.insert(egui::TextStyle::Button, egui::FontId::proportional(15.0));
         style.text_styles.insert(egui::TextStyle::Small, egui::FontId::proportional(13.0));
         cc.egui_ctx.set_style(style);
-        let tray = Tray::new().ok();
+        let language = load_language();
+        let tray = Tray::new(language).ok();
         let tray_actions = tray.as_ref().map(|tray| install_tray_handlers(cc, tray));
         let reference = default_reference();
         let _ = commands.send(Command::RefreshDevices);
-        Self { commands, events, tray, tray_actions, inputs: vec![], outputs: vec![], input: 0, output: 0,
+        Self { commands, events, tray, tray_actions, language, inputs: vec![], outputs: vec![], input: 0, output: 0,
             comparison_output: usize::MAX, reference, strong_music: false, block_size: load_processing_mode(), use_gpu: false,
             gpu_adapters: vec![], gpu_adapter: None, gpu_error: None,
             status: "正在读取音频设备…".into(), busy: true, running: false,
@@ -192,6 +243,14 @@ impl App {
     fn send(&mut self, command: Command, message: &str) {
         if self.commands.send(command).is_ok() { self.busy = true; self.status = message.into(); }
         else { self.status = "后台处理线程已退出，请重新启动程序。".into(); }
+    }
+    fn change_language(&mut self, ctx: &egui::Context, language: Language) {
+        self.language = language;
+        if let Some(tray) = &self.tray { tray.set_language(language); }
+        ctx.send_viewport_cmd(ViewportCommand::Title(language.title().to_owned()));
+        if let Err(error) = save_language(language) {
+            self.status = format!("界面语言已切换，但无法保存设置：{error}");
+        }
     }
     fn exit(&mut self, ctx: &egui::Context) {
         self.exiting = true;
@@ -230,14 +289,15 @@ fn title(ui: &mut egui::Ui, text: &str, detail: &str) {
     ui.add_space(3.0);
 }
 
-fn device_combo(ui: &mut egui::Ui, label: &str, devices: &[String], selected: &mut usize) {
+fn device_combo(ui: &mut egui::Ui, id: &str, label: &str, devices: &[String], selected: &mut usize, language: Language) {
     ui.label(egui::RichText::new(label).strong());
-    let full = devices.get(*selected).map(String::as_str).unwrap_or(if devices.is_empty() { "没有可用设备" } else { "请选择设备" });
+    let full = devices.get(*selected).map(String::as_str).unwrap_or(if devices.is_empty() { language.text("没有可用设备", "No devices available") } else { language.text("请选择设备", "Select a device") });
+    let full = crate::i18n::render_status(full, language.is_english());
     let limit = (ui.available_width() / 13.0).clamp(18.0, 48.0) as usize;
-    egui::ComboBox::from_id_salt(label)
-        .selected_text(abbreviated(full, limit))
+    egui::ComboBox::from_id_salt(id)
+        .selected_text(abbreviated(&full, limit))
         .width((ui.available_width() - 20.0).clamp(150.0, 530.0)).show_ui(ui, |ui| {
-            for (i, name) in devices.iter().enumerate() { ui.selectable_value(selected, i, name); }
+                for (i, name) in devices.iter().enumerate() { ui.selectable_value(selected, i, crate::i18n::render_status(name, language.is_english())); }
         }).response.on_hover_text(full);
 }
 
@@ -297,6 +357,23 @@ impl eframe::App for App {
         // minimized on the taskbar instead of quitting unexpectedly.
         if self.tray.is_some() && !self.hidden && !self.exiting && ctx.input(|i| i.viewport().minimized == Some(true)) { self.hide(ctx); }
         ctx.request_repaint_after(Duration::from_millis(100));
+        let previous_language = self.language;
+        egui::TopBottomPanel::top("language_header").show(ctx, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                ui.label(egui::RichText::new(previous_language.title()).size(22.0).strong());
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    egui::ComboBox::from_id_salt("ui_language")
+                        .selected_text(match self.language { Language::Chinese => "简体中文", Language::English => "English" })
+                        .width(110.0).show_ui(ui, |ui| {
+                            ui.selectable_value(&mut self.language, Language::Chinese, "简体中文");
+                            ui.selectable_value(&mut self.language, Language::English, "English");
+                        });
+                    ui.label("语言 / Language");
+                });
+            });
+        });
+        if self.language != previous_language { self.change_language(ctx, self.language); }
+        let language = self.language;
         // Keep status and transport visible while the settings scroll.
         egui::TopBottomPanel::bottom("transport")
             .frame(egui::Frame::new().fill(egui::Color32::WHITE)
@@ -305,97 +382,100 @@ impl eframe::App for App {
             .show(ctx, |ui| {
                 let needs_attention = ["失败", "异常", "不可用", "无法", "丢块", "空缓冲", "错误"]
                     .iter().any(|word| self.status.contains(word));
-                let (state, color) = if self.busy { ("处理中", egui::Color32::from_rgb(168, 112, 22)) }
-                    else if needs_attention { ("需要注意", egui::Color32::from_rgb(180, 75, 54)) }
-                    else if self.running { ("运行中", egui::Color32::from_rgb(22, 135, 99)) }
-                    else { ("已停止", egui::Color32::from_rgb(104, 119, 140)) };
+                let (state, color) = if self.busy { (language.text("处理中", "Working"), egui::Color32::from_rgb(168, 112, 22)) }
+                    else if needs_attention { (language.text("需要注意", "Attention"), egui::Color32::from_rgb(180, 75, 54)) }
+                    else if self.running { (language.text("运行中", "Running"), egui::Color32::from_rgb(22, 135, 99)) }
+                    else { (language.text("已停止", "Stopped"), egui::Color32::from_rgb(104, 119, 140)) };
                 ui.horizontal_wrapped(|ui| {
                     ui.label(egui::RichText::new("●").color(color));
                     ui.label(egui::RichText::new(state).color(color).strong());
-                    ui.label(egui::RichText::new(&self.status).size(13.0));
+                    ui.label(egui::RichText::new(crate::i18n::render_status(&self.status, language.is_english())).size(13.0));
                 });
                 ui.add_space(2.0);
                 ui.horizontal_wrapped(|ui| {
                     let can_start = !self.busy && !self.running && !self.inputs.is_empty() && !self.outputs.is_empty() && self.gpu_ready();
-                    let start = egui::Button::new(egui::RichText::new("开始处理").strong().color(if can_start { egui::Color32::WHITE } else { egui::Color32::from_rgb(135, 146, 163) }))
+                    let start = egui::Button::new(egui::RichText::new(language.text("开始处理", "Start processing")).strong().color(if can_start { egui::Color32::WHITE } else { egui::Color32::from_rgb(135, 146, 163) }))
                         .fill(if can_start { egui::Color32::from_rgb(45, 105, 208) } else { egui::Color32::from_rgb(231, 235, 241) }).min_size(egui::vec2(110.0, 34.0));
                     if ui.add_enabled(can_start, start).clicked() {
                         let message = if self.use_gpu { "正在验证显卡并加载模型，可能需要十几秒…" } else { "正在加载模型…" };
                         self.send(Command::Start { input: self.input, input_name: self.inputs[self.input].clone(), output: self.output, output_name: self.outputs[self.output].clone(), reference: self.reference.clone(), strong_music: self.strong_music, block_size: self.block_size, use_gpu: self.use_gpu, gpu_adapter: self.gpu_adapter }, message);
                     }
-                    if ui.add_enabled(!self.busy && self.running, egui::Button::new("停止处理").min_size(egui::vec2(94.0, 34.0))).clicked() { self.send(Command::Stop, "正在停止…"); }
-                    if ui.button("退出软件").clicked() { self.exit(ctx); }
-                    ui.label(egui::RichText::new(if self.tray.is_some() { "关闭窗口后在托盘运行" } else { "关闭窗口将退出" }).size(12.0).color(egui::Color32::from_rgb(119, 132, 150)));
+                    if ui.add_enabled(!self.busy && self.running, egui::Button::new(language.text("停止处理", "Stop processing")).min_size(egui::vec2(94.0, 34.0))).clicked() { self.send(Command::Stop, "正在停止…"); }
+                    if ui.button(language.text("退出软件", "Exit")).clicked() { self.exit(ctx); }
+                    ui.label(egui::RichText::new(if self.tray.is_some() { language.text("关闭窗口后在托盘运行", "Closing the window keeps the app in the tray") } else { language.text("关闭窗口将退出", "Closing the window exits") }).size(12.0).color(egui::Color32::from_rgb(119, 132, 150)));
                 });
             });
         egui::CentralPanel::default().show(ctx, |ui| { egui::ScrollArea::vertical().show(ui, |ui| {
             ui.add_space(8.0);
-            ui.label(egui::RichText::new("指定人声提取").size(25.0).strong());
-            ui.label(egui::RichText::new("选择你的声音，让语音通话更专注。")
+            ui.label(egui::RichText::new(language.text("游戏语音中减少音乐和视频背景声。", "Reduce music and video background sound in game chat."))
                 .size(14.0).color(egui::Color32::from_rgb(104, 119, 140)));
             ui.add_space(9.0);
             ui.add_enabled_ui(!self.busy && !self.running, |ui| {
                 card(ui, |ui| {
-                title(ui, "音频设备", "选择实体麦克风，将处理后的声音输出到虚拟声卡。");
-                device_combo(ui, "输入 · 麦克风", &self.inputs, &mut self.input);
+                title(ui, language.text("音频设备", "Audio devices"), language.text("选择实体麦克风，将处理后的声音输出到虚拟声卡。", "Select a physical microphone and send processed audio to a virtual cable."));
+                device_combo(ui, "input_device", language.text("输入 · 麦克风", "Input · Microphone"), &self.inputs, &mut self.input, language);
                 ui.add_space(3.0);
-                device_combo(ui, "输出 · 虚拟声卡", &self.outputs, &mut self.output);
-                if ui.button("刷新设备").clicked() { self.send(Command::RefreshDevices, "正在刷新设备…"); }
+                device_combo(ui, "output_device", language.text("输出 · 虚拟声卡", "Output · Virtual cable"), &self.outputs, &mut self.output, language);
+                if ui.button(language.text("刷新设备", "Refresh devices")).clicked() { self.send(Command::RefreshDevices, "正在刷新设备…"); }
                 });
                 ui.add_space(10.0);
                 card(ui, |ui| {
-                title(ui, "我的声样", "录制一段自己的声音，或选择已有的 WAV 声样。");
+                title(ui, language.text("我的声样", "Voice sample"), language.text("录制一段自己的声音，或选择已有的 WAV 声样。", "Record your voice or choose an existing WAV sample."));
                 let path_text = self.reference.to_string_lossy();
-                let name = self.reference.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "未选择声样".into());
-                ui.label(egui::RichText::new(format!("当前声样：{}", abbreviated(&name, 38))).strong()).on_hover_text(path_text);
+                let name = if language.is_english() && self.reference == default_reference() {
+                    "Recorded voice sample (WAV)".to_owned()
+                } else {
+                    self.reference.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| language.text("未选择声样", "No sample selected").into())
+                };
+                ui.label(egui::RichText::new(format!("{} {}", language.text("当前声样：", "Current sample:"), abbreviated(&name, 38))).strong()).on_hover_text(path_text);
                 ui.horizontal_wrapped(|ui| {
-                    if ui.add_enabled(!self.inputs.is_empty(), egui::Button::new("录入声音（12 秒）")).clicked() {
+                    if ui.add_enabled(!self.inputs.is_empty(), egui::Button::new(language.text("录入声音（12 秒）", "Record voice (12 s)"))).clicked() {
                         self.send(Command::Record { input: self.input, input_name: self.inputs[self.input].clone(), path: default_reference() }, "录音中，请连续说话 12 秒…");
                     }
-                    if ui.button("选择已有声样").clicked() {
-                        if let Some(path) = rfd::FileDialog::new().add_filter("WAV 音频", &["wav"]).pick_file() { self.reference = path; }
+                    if ui.button(language.text("选择已有声样", "Choose existing sample")).clicked() {
+                        if let Some(path) = rfd::FileDialog::new().set_title(language.text("选择已有声样", "Choose voice sample")).add_filter(language.text("WAV 音频", "WAV audio"), &["wav"]).pick_file() { self.reference = path; }
                     }
                 });
                 });
                 ui.add_space(10.0);
                 card(ui, |ui| {
-                title(ui, "处理设置", "在响应速度与 CPU 占用之间选择适合当前场景的模式。");
-                ui.checkbox(&mut self.strong_music, "加强背景音乐过滤（启动处理或试听时生效）");
-                ui.checkbox(&mut self.use_gpu, "使用显卡加速声纹提取（降噪仍由 CPU 处理）");
+                title(ui, language.text("处理设置", "Processing settings"), language.text("在响应速度与 CPU 占用之间选择适合当前场景的模式。", "Choose a mode that balances responsiveness and CPU use."));
+                ui.checkbox(&mut self.strong_music, language.text("加强背景音乐过滤（启动处理或试听时生效）", "Stronger background music filtering (applied on start or preview)"));
+                ui.checkbox(&mut self.use_gpu, language.text("使用显卡加速声纹提取（降噪仍由 CPU 处理）", "Use GPU for speaker extraction (denoising still uses CPU)"));
                 if self.use_gpu {
                     let selected_text = match self.gpu_adapter {
-                        None => "自动选择（按显存优先）".to_string(),
+                        None => language.text("自动选择（按显存优先）", "Automatic (prefer dedicated GPU memory)").to_string(),
                         Some((index, luid)) => self.gpu_adapters.iter().find(|(i, l, _)| *i == index && *l == luid)
-                            .map(|(_, _, name)| format!("{name}（设备 {index}，ID {luid:016X}）"))
-                            .unwrap_or_else(|| "所选显卡已不可用，请重新选择".to_string()),
+                            .map(|(_, _, name)| format!("{name} ({} {index}, ID {luid:016X})", language.text("设备", "device")))
+                            .unwrap_or_else(|| language.text("所选显卡已不可用，请重新选择", "Selected GPU unavailable; choose again").to_string()),
                     };
-                    ui.label(egui::RichText::new("显卡设备").strong());
+                    ui.label(egui::RichText::new(language.text("显卡设备", "GPU device")).strong());
                         egui::ComboBox::from_id_salt("gpu_adapter")
                             .selected_text(abbreviated(&selected_text, (ui.available_width() / 13.0).clamp(18.0, 48.0) as usize)).width((ui.available_width() - 20.0).clamp(150.0, 530.0)).show_ui(ui, |ui| {
-                                ui.selectable_value(&mut self.gpu_adapter, None, "自动选择（按显存优先）");
+                                ui.selectable_value(&mut self.gpu_adapter, None, language.text("自动选择（按显存优先）", "Automatic (prefer dedicated GPU memory)"));
                                 for (index, luid, name) in &self.gpu_adapters {
-                                    ui.selectable_value(&mut self.gpu_adapter, Some((*index, *luid)), format!("{name}（设备 {index}，ID {luid:016X}）"));
+                                    ui.selectable_value(&mut self.gpu_adapter, Some((*index, *luid)), format!("{name} ({} {index}, ID {luid:016X})", language.text("设备", "device")));
                                 }
                             }).response.on_hover_text(selected_text);
-                    if let Some(error) = &self.gpu_error { ui.label(format!("显卡列表不可用：{error}")); }
-                    else if self.gpu_adapters.is_empty() { ui.label("没有发现可用硬件显卡，请检查驱动并刷新设备。"); }
-                    else if !self.gpu_ready() { ui.label("所选显卡已不可用，请刷新或重新选择。"); }
-                    ui.label("建议先选择“更省 CPU”；显卡繁忙时可能断音。");
+                    if let Some(error) = &self.gpu_error { ui.label(format!("{} {}", language.text("显卡列表不可用：", "GPU list unavailable:"), crate::i18n::render_status(error, language.is_english()))); }
+                    else if self.gpu_adapters.is_empty() { ui.label(language.text("没有发现可用硬件显卡，请检查驱动并刷新设备。", "No hardware GPU found. Check the driver and refresh devices.")); }
+                    else if !self.gpu_ready() { ui.label(language.text("所选显卡已不可用，请刷新或重新选择。", "The selected GPU is unavailable. Refresh or select another.")); }
+                    ui.label(language.text("建议先选择“更省 CPU”；显卡繁忙时可能断音。", "Try Lowest CPU first; a busy GPU may cause audio gaps."));
                 }
-                ui.label(egui::RichText::new("处理模式").strong());
+                ui.label(egui::RichText::new(language.text("处理模式", "Processing mode")).strong());
                     let previous_block_size = self.block_size;
                     egui::ComboBox::from_id_salt("processing_block_size")
                         .selected_text(match self.block_size {
-                            crate::audio::LOW_CPU_BLOCK_SIZE => "省 CPU（160 毫秒音频块）",
-                            crate::audio::LOWEST_CPU_BLOCK_SIZE => "更省 CPU（240 毫秒音频块）",
-                            _ => "低延迟（80 毫秒音频块）",
+                            crate::audio::LOW_CPU_BLOCK_SIZE => language.text("省 CPU（160 毫秒音频块）", "Lower CPU (160 ms blocks)"),
+                            crate::audio::LOWEST_CPU_BLOCK_SIZE => language.text("更省 CPU（240 毫秒音频块）", "Lowest CPU (240 ms blocks)"),
+                            _ => language.text("低延迟（80 毫秒音频块）", "Low latency (80 ms blocks)"),
                         }).width((ui.available_width() - 20.0).clamp(150.0, 530.0)).show_ui(ui, |ui| {
-                            ui.selectable_value(&mut self.block_size, crate::audio::BLOCK_SIZE, "低延迟（80 毫秒音频块）");
-                            ui.selectable_value(&mut self.block_size, crate::audio::LOW_CPU_BLOCK_SIZE, "省 CPU（160 毫秒音频块）");
-                            ui.selectable_value(&mut self.block_size, crate::audio::LOWEST_CPU_BLOCK_SIZE, "更省 CPU（240 毫秒音频块）");
+                            ui.selectable_value(&mut self.block_size, crate::audio::BLOCK_SIZE, language.text("低延迟（80 毫秒音频块）", "Low latency (80 ms blocks)"));
+                            ui.selectable_value(&mut self.block_size, crate::audio::LOW_CPU_BLOCK_SIZE, language.text("省 CPU（160 毫秒音频块）", "Lower CPU (160 ms blocks)"));
+                            ui.selectable_value(&mut self.block_size, crate::audio::LOWEST_CPU_BLOCK_SIZE, language.text("更省 CPU（240 毫秒音频块）", "Lowest CPU (240 ms blocks)"));
                         });
                     let reserve = match self.block_size { crate::audio::LOW_CPU_BLOCK_SIZE => 40, crate::audio::LOWEST_CPU_BLOCK_SIZE => 80, _ => 20 };
-                    ui.label(egui::RichText::new(format!("抗抖缓冲额外增加约 {reserve} 毫秒等待。")).size(13.0));
+                    ui.label(egui::RichText::new(if language.is_english() { format!("Playback buffering adds approximately {reserve} ms of delay.") } else { format!("抗抖缓冲额外增加约 {reserve} 毫秒等待。") }).size(13.0));
                     if self.block_size != previous_block_size {
                         if let Err(error) = save_processing_mode(self.block_size) {
                             self.status = format!("处理模式已切换，但无法保存设置：{error}");
@@ -409,21 +489,21 @@ impl eframe::App for App {
             if self.comparison_source() != previous_comparison_source { self.comparison_ready = false; }
             ui.add_space(10.0);
             card(ui, |ui| {
-            title(ui, "效果试听", "先停止处理，录制 5 秒，再通过实体耳机或扬声器对比。");
+            title(ui, language.text("效果试听", "Preview"), language.text("先停止处理，录制 5 秒，再通过实体耳机或扬声器对比。", "Stop processing, record five seconds, then compare through headphones or speakers."));
             if self.comparison_output == usize::MAX && !self.outputs.is_empty() {
-                ui.label("未找到明显的实体播放设备，请手动选择试听设备。");
+                ui.label(language.text("未找到明显的实体播放设备，请手动选择试听设备。", "No physical playback device found automatically. Select one for preview."));
             }
             ui.add_enabled_ui(!self.busy && !self.running, |ui| {
-                device_combo(ui, "试听设备", &self.outputs, &mut self.comparison_output);
+                device_combo(ui, "preview_device", language.text("试听设备", "Preview device"), &self.outputs, &mut self.comparison_output, language);
                 ui.horizontal_wrapped(|ui| {
-                    if ui.add_enabled(!self.inputs.is_empty() && self.gpu_ready(), egui::Button::new("录制 5 秒试听")).clicked() {
+                    if ui.add_enabled(!self.inputs.is_empty() && self.gpu_ready(), egui::Button::new(language.text("录制 5 秒试听", "Record 5-second preview"))).clicked() {
                         self.comparison_ready = false;
                         self.send(Command::RecordComparison { input: self.input, input_name: self.inputs[self.input].clone(), reference: self.reference.clone(), strong_music: self.strong_music, block_size: self.block_size, use_gpu: self.use_gpu, gpu_adapter: self.gpu_adapter }, "正在录制并处理试听…");
                     }
-                    if ui.add_enabled(self.comparison_ready && self.comparison_output < self.outputs.len(), egui::Button::new("播放原声")).clicked() {
+                    if ui.add_enabled(self.comparison_ready && self.comparison_output < self.outputs.len(), egui::Button::new(language.text("播放原声", "Play original"))).clicked() {
                         self.send(Command::PlayComparison { output: self.comparison_output, output_name: self.outputs[self.comparison_output].clone(), processed: false }, "正在播放原声…");
                     }
-                    if ui.add_enabled(self.comparison_ready && self.comparison_output < self.outputs.len(), egui::Button::new("播放处理后")).clicked() {
+                    if ui.add_enabled(self.comparison_ready && self.comparison_output < self.outputs.len(), egui::Button::new(language.text("播放处理后", "Play processed"))).clicked() {
                         self.send(Command::PlayComparison { output: self.comparison_output, output_name: self.outputs[self.comparison_output].clone(), processed: true }, "正在播放处理结果…");
                     }
                 });
@@ -438,13 +518,26 @@ impl eframe::App for App {
 pub fn run(commands: Sender<Command>, events: Receiver<Event>) -> eframe::Result {
     let options = eframe::NativeOptions { viewport: egui::ViewportBuilder::default()
         .with_inner_size([720.0, 760.0]).with_min_inner_size([520.0, 420.0]), ..Default::default() };
-    eframe::run_native("指定人声提取", options,
+    eframe::run_native(load_language().title(), options,
         Box::new(move |cc| Ok(Box::new(App::new(cc, commands, events)))))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{gpu_selection_ready, remap_gpu_selection};
+    use super::{gpu_selection_ready, remap_gpu_selection, language_from_windows_langid, Language};
+
+    #[test]
+    fn language_preference_round_trips_and_system_default_is_language_specific() {
+        for language in [Language::Chinese, Language::English] {
+            assert_eq!(Language::from_setting(language.setting()), Some(language));
+        }
+        assert_eq!(Language::from_setting("not-a-language"), None);
+        assert_eq!(language_from_windows_langid(0x0804), Language::Chinese); // Simplified Chinese
+        assert_eq!(language_from_windows_langid(0x0404), Language::Chinese); // Traditional Chinese
+        assert_eq!(language_from_windows_langid(0x0409), Language::English); // English
+        assert_eq!(language_from_windows_langid(0x0411), Language::English); // Japanese
+        assert_eq!(language_from_windows_langid(0x0412), Language::English); // Korean
+    }
 
     #[test]
     fn gpu_selection_survives_reordering_but_not_removal_or_error() {

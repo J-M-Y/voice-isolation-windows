@@ -1,5 +1,17 @@
 # 版本记录 / Changelog
 
+## v2.1.0
+
+### 中文
+
+- 增加软件界面的简体中文与英文切换，首次启动按 Windows 显示语言选择，切换即时生效并记住所选语言。
+- 更新中英文使用说明和 Windows x64 安装包、便携压缩包。
+
+### English
+
+- Add a Simplified Chinese / English language selector with an automatic initial choice based on the Windows display language; changes take effect immediately and are saved.
+- Update the bilingual documentation, Windows x64 installer, and portable ZIP.
+
 ## v2.0.0
 
 ### 中文

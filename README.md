@@ -2,17 +2,18 @@
 
 [English](README.md) · [简体中文](README.zh-CN.md) · [Downloads / 下载](https://github.com/J-M-Y/voice-isolation-windows/releases/latest) · [Changelog / 版本记录](CHANGELOG.md)
 
-Extract a selected speaker's voice and reduce noise from a microphone locally on Windows. Enroll your voice, then send the processed audio to a virtual audio cable for use in games, voice chats, or meetings. The current release is a native Rust application and does not require Python at runtime. Audio processing and the enrolled voice sample stay on your computer.
+Keep game voice chat focused on your voice while music, short videos, or other background sounds play nearby. Enroll your voice and send the processed microphone audio to a virtual audio cable, so teammates hear less of those sounds. Processing runs locally on Windows; the native Rust application does not require Python at runtime.
 
 ## Features
 
 - Record or import a WAV voice sample, extract the selected speaker, and choose normal or stronger background-music filtering.
+- Switch the application interface between English and Simplified Chinese; your language choice is saved.
 - Choose input, output, and preview devices; record a five-second sample to compare the original with the processed audio.
 - Select **Low latency**, **Lower CPU**, or **Lowest CPU**. Larger processing blocks reduce model calls but add waiting time.
 - Run on the CPU or use Windows DirectML with compatible AMD, NVIDIA, and Intel GPUs. Select a GPU automatically or manually; CUDA is not required. Some model operators and noise reduction still run on the CPU.
 - Keep processing in the system tray and see dropped-block and output-underrun counts, including the total time spent filling missing output with silence.
 
-Quality, CPU use, and latency depend on the hardware and environment. The application cannot guarantee complete removal of other speakers, music, or noise, and does not provide dedicated acoustic echo cancellation. The DirectML path is vendor-neutral and has been tested on an AMD Radeon RX 6800; NVIDIA and other GPU models have not yet been tested on physical hardware.
+Only microphone input is processed; the application does not remove music or video from your own speakers. Quality, CPU use, and latency depend on the hardware and environment. Complete removal of background sounds is not guaranteed, and the application does not provide dedicated acoustic echo cancellation. The DirectML path is vendor-neutral and has been tested on an AMD Radeon RX 6800; NVIDIA and other GPU models have not yet been tested on physical hardware.
 
 ## Download and installation
 
@@ -24,12 +25,13 @@ GPU acceleration requires Windows 10 version 1903 or later, a DirectX 12 / Direc
 
 ## Getting started
 
-1. Select your physical microphone and click **录入声音（12 秒）** (Record voice, 12 seconds). Speak normally and continuously in a quiet place, or import an existing WAV sample.
-2. Select the playback end of your virtual cable as the output device, for example **CABLE Input**, and click **开始处理** (Start processing).
-3. In your game or voice app, select the cable's recording end, for example **CABLE Output**, as the microphone. Keep your normal headphones as the playback device.
-4. Stop processing before using the five-second preview; select physical headphones or speakers to compare the original and processed audio.
+1. Use the language selector at the top of the window to choose **English** or **简体中文**. The initial choice follows the Windows display language; changes take effect immediately and are saved.
+2. Select your physical microphone and click **Record voice (12 s)**. Speak normally and continuously in a quiet place, or import an existing WAV sample.
+3. Select the playback end of your virtual cable as the output device, for example **CABLE Input**, and click **Start processing**.
+4. In your game or voice app, select the cable's recording end, for example **CABLE Output**, as the microphone. Keep your normal headphones as the playback device.
+5. Stop processing before using the five-second preview; select physical headphones or speakers to compare the original and processed audio.
 
-Closing or minimizing the window keeps the application in the system tray. Double-click the tray icon to restore the window; use **退出软件** (Exit) in the tray menu or main window to stop processing and exit. Expand the taskbar's hidden-icons area if necessary. Exit an older running version before starting a new one. The application interface is currently in Chinese.
+Closing or minimizing the window keeps the application in the system tray. Double-click the tray icon to restore the window; use **Exit** in the tray menu or main window to stop processing and exit. Expand the taskbar's hidden-icons area if necessary. Exit an older running version before starting a new one.
 
 The three modes use 80, 160, and 240 ms audio blocks, plus approximately 20, 40, and 80 ms of playback pre-buffering respectively. Actual end-to-end latency also includes model, device, system, and network delays. Continuously increasing drop or underrun counts can indicate audible gaps; reduce system load or try another processing mode.
 

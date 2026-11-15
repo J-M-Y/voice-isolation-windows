@@ -8,7 +8,7 @@ $ProgressPreference = 'SilentlyContinue'
 $native = Split-Path -Parent $PSScriptRoot
 $root = Split-Path -Parent $native
 $manifest = Join-Path $native 'Cargo.toml'
-$out = Join-Path $native 'target\release-assets'
+$out = Join-Path $native 'target\release-assets\v2.1.0'
 $stage = Join-Path $native ('target\package-stage-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Force -Path $out,$stage | Out-Null
 foreach ($name in @('runtime','runtime-dml','models','licenses','licenses\rust-crates')) {
@@ -49,7 +49,7 @@ foreach ($entry in $expectedRuntime.GetEnumerator()) {
 $gpuArgs = @{ Cxx = $Cxx; Destination = (Join-Path $stage 'runtime-dml') }
 if ($DirectMLPackage) { $gpuArgs.Package = $DirectMLPackage }
 & (Join-Path $native 'setup-gpu.ps1') @gpuArgs
-Copy-Item -LiteralPath (Join-Path $root 'README.md'),(Join-Path $root 'README.en.md'),(Join-Path $root 'CHANGELOG.md') -Destination $stage
+Copy-Item -LiteralPath (Join-Path $root 'README.md'),(Join-Path $root 'README.en.md'),(Join-Path $root 'README.zh-CN.md'),(Join-Path $root 'CHANGELOG.md') -Destination $stage
 Copy-Item -Path (Join-Path $PSScriptRoot 'licenses\*') -Destination (Join-Path $stage 'licenses') -Recurse
 
 # Include the pinned Rust dependency metadata and the license/notice files in
@@ -81,8 +81,8 @@ foreach ($pkg in ($meta.packages | Where-Object { $_.source -like 'registry+*' }
 }
 [IO.File]::WriteAllLines((Join-Path $stage 'licenses\rust-crates\INDEX.txt'),$index,[Text.UTF8Encoding]::new($false))
 
-$zip = Join-Path $out 'VoiceIsolation-v2.0.0-win-x64.zip'
-$installer = Join-Path $out 'VoiceIsolation-v2.0.0-win-x64-setup.exe'
+$zip = Join-Path $out 'VoiceIsolation-v2.1.0-win-x64.zip'
+$installer = Join-Path $out 'VoiceIsolation-v2.1.0-win-x64-setup.exe'
 foreach ($asset in @($zip,$installer,(Join-Path $out 'SHA256SUMS.txt'))) {
     if (Test-Path -LiteralPath $asset) { throw "Asset already exists: $asset; move the old asset before rebuilding" }
 }

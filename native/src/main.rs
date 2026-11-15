@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod audio;
 mod controller;
+mod i18n;
 mod processor;
 mod ui;
 
@@ -20,7 +21,8 @@ mod instance {
     }
     fn wide(value: &str) -> Vec<u16> { value.encode_utf16().chain(Some(0)).collect() }
     pub fn notify(message: &str) {
-        unsafe { MessageBoxW(ptr::null_mut(), wide(message).as_ptr(), wide("指定人声提取").as_ptr(), 0x40); }
+        let title = if crate::ui::preferred_english() { "Voice Isolation" } else { "指定人声提取" };
+        unsafe { MessageBoxW(ptr::null_mut(), wide(message).as_ptr(), wide(title).as_ptr(), 0x40); }
     }
     pub struct Guard(*mut c_void);
     impl Guard {
@@ -30,7 +32,10 @@ mod instance {
             // cannot capture the same devices simultaneously.
             let name = wide("Local\\VoiceIsolation_3E5B771A_Tray_v1.mutex");
             let handle = unsafe { CreateMutexW(ptr::null(), 0, name.as_ptr()) };
-            if handle.is_null() { return Err(format!("无法创建单实例保护（Windows 错误 {}）", unsafe { GetLastError() })); }
+            if handle.is_null() {
+                let error = unsafe { GetLastError() };
+                return Err(if crate::ui::preferred_english() { format!("Unable to initialize single-instance protection (Windows error {error}).") } else { format!("无法创建单实例保护（Windows 错误 {error}）") });
+            }
             if unsafe { GetLastError() } == 183 {
                 unsafe { CloseHandle(handle); }
                 return Ok(None);
@@ -45,13 +50,13 @@ fn main() {
     #[cfg(windows)]
     let _instance = match instance::Guard::acquire() {
         Ok(Some(guard)) => guard,
-        Ok(None) => { instance::notify("程序已在运行。请从系统托盘打开窗口。"); return; },
+        Ok(None) => { instance::notify(if ui::preferred_english() { "The application is already running. Open it from the system tray." } else { "程序已在运行。请从系统托盘打开窗口。" }); return; },
         Err(error) => { instance::notify(&error); return; },
     };
     let (commands, events, worker) = controller::start();
     if let Err(error) = ui::run(commands, events) {
         #[cfg(windows)]
-        instance::notify(&format!("无法启动界面：{error}"));
+        instance::notify(&if ui::preferred_english() { format!("Unable to start the interface: {error}") } else { format!("无法启动界面：{error}") });
         eprintln!("无法启动界面: {error}");
     }
     // Audio drivers or model inference can hang while shutting down. Give

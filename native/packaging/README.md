@@ -1,6 +1,6 @@
 # Windows x64 release packaging
 
-The script assembles the current Rust program, four checked models, the sherpa-onnx CPU runtime, the DirectML worker and runtime, documentation, and third-party notices. It creates a portable ZIP, a per-user Inno Setup installer, and SHA-256 checksums under `native/target/release-assets/`. It never includes a recorded voice profile. The outputs are unsigned.
+The script assembles the current Rust program, four checked models, the sherpa-onnx CPU runtime, the DirectML worker and runtime, documentation, and third-party notices. It creates a portable ZIP, a per-user Inno Setup installer, and SHA-256 checksums under `native/target/release-assets/v2.1.0/`. It never includes a recorded voice profile. The outputs are unsigned.
 
 Install Rust and the Windows GNU toolchain, a compatible MinGW-w64 `g++.exe`, and Inno Setup. Populate Cargo's cache with the dependencies in `Cargo.lock`, then run `native/setup.ps1` to download and verify the CPU runtime and models. The target machine needs the Microsoft Visual C++ 2015–2022 x64 Redistributable and a separately installed virtual audio cable; neither is silently installed by this package.
 

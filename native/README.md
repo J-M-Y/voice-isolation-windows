@@ -9,7 +9,7 @@
 1. 安装 Rust 和 Windows C/C++ 构建工具。推荐 x86_64-pc-windows-msvc 工具链和 Visual Studio C++ 桌面构建工具；GNU 工具链也需要完整的 MinGW binutils。
 2. 在仓库根目录的 PowerShell 中运行 `powershell -ExecutionPolicy Bypass -File native/setup.ps1`。脚本从上游下载固定版本的 sherpa-onnx 2.0.1 运行库及模型，验证 SHA-256 后放入 `models` 和 `native/target/{debug,release}/runtime`；可重新运行以续传。下载需要网络，不会读取或修改个人声样。
 3. 运行 `cargo build --release --locked --manifest-path native/Cargo.toml --bins`，然后启动 `native/target/release/voice-isolation-native.exe`。建议从仓库目录启动。模型推理不需要 Python。
-4. 选择实体麦克风，点击“录入声音（12 秒）”；输出选择虚拟声卡的播放端（例如 CABLE Input），开始处理。在游戏或语音软件中选择对应的录音端（例如 CABLE Output）。先停止处理，再录制试听并通过实体耳机播放。
+4. 可在窗口顶部的语言选择器中切换简体中文或 English，程序会记住所选语言。选择实体麦克风，点击“录入声音（12 秒）”；输出选择虚拟声卡的播放端（例如 CABLE Input），开始处理。在游戏或语音软件中选择对应的录音端（例如 CABLE Output）。先停止处理，再录制试听并通过实体耳机播放。
 
 处理模式可以在停止时切换：**低延迟**、**省 CPU**和**更省 CPU**分别使用 80、160、240 毫秒音频块。较大音频块减少模型调用次数，但增加采集等待。三个模式还分别增加约 20、40、80 毫秒的播放预缓冲，用来吸收短时处理和设备调度波动；相对于原先没有预缓冲的版本，这部分会增加输出延迟。程序会记住所选处理模式。实际总延迟还包括设备、处理和排队时间。试听也使用当前所选模式；处理时如缓冲丢块或输出缺样，界面会显示计数和累计缺样时长（含恢复缓冲），而不会静默隐藏。
 
