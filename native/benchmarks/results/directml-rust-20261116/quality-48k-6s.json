@@ -1,0 +1,33 @@
+{
+  "cpu": {
+    "lag_samples": 2400,
+    "signal_lag_ms": 50.0,
+    "target_correlation": 0.9752570620785693,
+    "interference_correlation": 0.05923565045011633,
+    "target_linear_gain": 1.0147565925894777,
+    "interference_linear_gain": 0.04404836427804716,
+    "output_rms": 0.06445670200064942,
+    "aligned_seconds": 3.95
+  },
+  "gpu": {
+    "lag_samples": 2400,
+    "signal_lag_ms": 50.0,
+    "target_correlation": 0.9768310743387977,
+    "interference_correlation": 0.058589796333483365,
+    "target_linear_gain": 1.0221452572107337,
+    "interference_linear_gain": 0.04375250982025395,
+    "output_rms": 0.06482110685470734,
+    "aligned_seconds": 3.95
+  },
+  "cpu_gpu_correlation": 0.9997819010090735,
+  "cpu_gpu_rms_difference": 0.0013983181237789608,
+  "cpu_gpu_relative_rms_difference": 0.02169391359435164,
+  "preview_common_gain": 1.2087052748063445,
+  "preview_seconds": 3.95,
+  "preview_sha256": {
+    "01-synthetic-mix.wav": "cb636ad8788fda97c0e841b38c3a6991f722d18094881bbb3eecdd4b39048c50",
+    "02-cpu-reference.wav": "900fce29ae669d3e0235cfe9e43afd3e103f9e2537b3f17ba8327494ee36746c",
+    "03-gpu-experimental.wav": "855842f10dea34c55be4a417c96b093528dadffa7c89d359144044e670c67bec"
+  },
+  "scope": "one synthetic mixture; no physical audio device; GPU parent: rust"
+}

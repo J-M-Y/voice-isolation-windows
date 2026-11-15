@@ -12,3 +12,8 @@ release*/
 *.ogg
 *.m4a
 *.log
+
+.toolchain/
+native/target/
+native/.download-cache/
+native/benchmarks/results/**/*.jsonl

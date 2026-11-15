@@ -1,34 +1,53 @@
-# 指定人声提取 · Windows 实验版
+# 指定人声提取 · Windows
 
-一款 Windows 本地人声提取与降噪小工具。录入一段自己的声音后，可实时处理麦克风输入并输出到虚拟声卡，供游戏或语音软件使用。最小化或关闭窗口后，程序留在系统托盘，处理可以继续；从托盘退出时停止处理。
+[English](README.en.md) · [下载](https://github.com/J-M-Y/voice-isolation-windows/releases/latest) · [版本记录](CHANGELOG.md)
 
-> 这是实验软件。处理效果取决于麦克风、环境、说话音量和电脑性能，无法保证完全去除音乐或其他人的声音，也可能出现漏字、失真和延迟。当前版本不包含专门的声学回声消除功能。
+在 Windows 上本地提取指定说话人的声音，并对麦克风输入进行降噪。录入自己的声样后，程序将处理结果送入虚拟声卡，供游戏、语音聊天或会议软件使用。当前发布版使用 Rust 原生程序，运行时不需要安装 Python；处理和声样保存在本机。
+
+## 功能
+
+- 录制或导入 WAV 声样，提取目标说话人，并提供普通和加强背景音乐过滤。
+- 选择输入、输出和试听设备，录制五秒进行处理前后对比。
+- 选择 **低延迟**、**省 CPU**或**更省 CPU**处理模式；较大的处理块减少模型调用次数，也会增加等待时间。
+- 选择 CPU 或通过 Windows DirectML 使用兼容的 AMD、NVIDIA、Intel 显卡；支持自动或手动选卡，无需 CUDA。模型的部分算子和降噪仍在 CPU 执行。
+- 支持托盘运行，并显示丢块、输出缺样次数及累计缺样时长。
+
+声音效果、CPU 占用和延迟会随设备与环境变化；无法保证完全去除其他人声、音乐或噪声，也不包含专门的声学回声消除。DirectML 代码支持多个显卡厂商，当前已在 AMD Radeon RX 6800 上实测，NVIDIA 和其他型号尚未完成实机测试。
 
 ## 下载安装
 
-前往 [v1.1.0 下载页面](https://github.com/J-M-Y/voice-isolation-windows/releases/tag/v1.1.0) 下载 Windows 安装包或便携版。安装包不需要 Python；便携版解压后运行 VoiceIsolation.exe。程序不要求将虚拟声卡设置为系统默认设备。
+从 [GitHub Releases](https://github.com/J-M-Y/voice-isolation-windows/releases/latest) 下载 Windows x64 安装包或便携压缩包。便携版解压到一个文件夹后运行 `VoiceIsolation.exe`，请保留压缩包内的模型与运行库目录。安装包与便携版均不需要 Python。若系统缺少运行库，请安装微软官方 [Visual C++ 2015–2022 x64 可再发行组件](https://learn.microsoft.com/zh-cn/cpp/windows/latest-supported-vc-redist)。
 
-如果电脑还没有虚拟声卡，按照包内说明安装 VB-CABLE 并按提示重启。安装驱动需管理员权限。VB-CABLE 是 VB-Audio 的独立软件，属于 donationware；支持及捐赠见 [VB-Audio 官方网站](https://vb-audio.com/Cable/)，机构使用及再分发请阅读 [官方授权说明](https://vb-audio.com/Services/licensing.htm)。
+程序本身不安装虚拟声卡。需自行安装 [VB-CABLE](https://vb-audio.com/Cable/) 或其他兼容的虚拟声卡；安装第三方驱动可能需要管理员权限及重启。VB-CABLE 是 VB-Audio 的独立软件，使用及再分发以其[官方授权](https://vb-audio.com/Services/licensing.htm)为准。
+
+使用显卡加速时，需要 Windows 10 版本 1903 或更新版本、支持 DirectX 12 / DirectML 的显卡及合适的驱动；具体型号对模型和运算符的支持可能不同。若显卡初始化或实际 GPU 计算验证失败，程序会提示错误，可取消显卡加速后使用 CPU。[DirectML 的系统要求](https://onnxruntime.ai/docs/execution-providers/DirectML-ExecutionProvider.html)
 
 ## 使用方法
 
-1. 选择自己的实体麦克风，在安静环境点击 **录入声音（12 秒）**，正常连续说话。
-2. 保持自动选中的虚拟声卡输出端 CABLE Input，点击 **开始处理**。
-3. 在游戏或语音软件中，将麦克风输入选择为 **CABLE Output**，耳机输出保持原来的设备。
-4. 可点击 **试听前后效果** 检查效果。关闭窗口或最小化后程序会进入托盘；点击托盘图标可恢复窗口，右键选择“退出软件”会停止处理并退出。看不到图标时展开任务栏右下角的 ∧。
+1. 选择实体麦克风，点击 **录入声音（12 秒）**，在安静环境正常、连续说话；也可以导入已有 WAV 声样。
+2. 将输出设备设为虚拟声卡的播放端，例如 **CABLE Input**，然后点击 **开始处理**。
+3. 在游戏或语音软件中，将麦克风选择为虚拟声卡的录音端，例如 **CABLE Output**；耳机输出保持原来的设备。
+4. 停止处理后，可选择实体耳机或扬声器录制并试听原声和处理后的效果。
 
-程序及模型在本机运行。声样保存在本机 %LOCALAPPDATA%\VoiceIsolation\我的声样.wav，不会随安装包或源码发布；如需删除，可退出程序后自行删除该文件。软件只处理运行它的电脑发出的麦克风声音。朋友那边的环境噪声，需要朋友在自己的电脑上使用并录入自己的声音。
+关闭或最小化窗口后程序留在系统托盘。双击托盘图标显示窗口，右键选择 **退出软件**，或在主窗口点击 **退出软件**，会停止处理并退出。若看不到图标，请展开任务栏右侧的隐藏图标区域。旧版仍在运行时，请先退出旧版再启动新版。
 
-## 从源码运行
+三个处理模式分别使用 80、160、240 毫秒音频块，并分别增加约 20、40、80 毫秒播放预缓冲以抵御短时波动。实际端到端延迟还包括模型、声卡、系统和网络等开销。若界面中缺样或丢块计数持续增长，声音可能出现停顿；可尝试减轻系统负载或调整处理模式。
 
-本仓库不包含模型权重或虚拟声卡驱动。安装 Python 3.12，运行 repair_environment.bat 安装依赖，再运行 安装模型.bat 下载模型，最后运行 start.bat。下载依赖和模型需要联网，正常音频处理在本地执行。其他构建步骤、测试及第三方许可位于仓库中的 [完整源码压缩包](https://github.com/J-M-Y/voice-isolation-windows/blob/main/voice-isolation-windows-source.zip)：解压后查看 installer/BUILD.md 和 third_party_notices。
+默认声样位于 `%LOCALAPPDATA%\VoiceIsolation\我的声样.wav`，也可以选择其他 WAV 文件。正常处理不上传音频。CPU 运行库加载声样时会短暂创建临时 WAV 并在载入后删除；强制结束进程时临时文件可能残留。声样不会随源码或发布包分发。
+
+## 从源码构建
+
+需要 Windows x64、Rust 和 Windows C/C++ 构建工具。在仓库根目录运行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File native/setup.ps1
+cargo build --release --locked --manifest-path native/Cargo.toml --bins
+```
+
+`setup.ps1` 下载并校验固定版本的模型及 CPU 运行库。显卡模式还需使用 MinGW-w64 `g++.exe` 执行 `native/setup-gpu.ps1 -Cxx <g++.exe路径>`，准备独立的 DirectML 运行库与工作进程。源码构建、测试、模型来源和性能结果详见 [Rust 构建说明](https://github.com/J-M-Y/voice-isolation-windows/blob/main/native/README.md)。
+
+仓库保留旧 Python 实现；它与当前 Rust 版本使用不同版本的 VoxLock 模型，不能同时运行，也不能直接互换模型文件。
 
 ## 第三方组件
 
-- [VoxLock](https://github.com/arbazsiddiqui/voxlock) / [VoxLock 模型](https://huggingface.co/arbazsiddiqui/voxlock)：Apache-2.0。
-- [GTCRN](https://github.com/Xiaobin-Rong/gtcrn)：MIT；应用使用 sherpa-onnx 提供的模型。
-- [DPDFNet2](https://huggingface.co/Ceva-IP/DPDFNet)：Apache-2.0；应用使用 sherpa-onnx 提供的模型。
-- [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx)：Apache-2.0。
-- VB-CABLE 版权归 VB-Audio 所有，不属于本项目源码。
-
-打包版本包含更完整的依赖许可证和来源信息。
+本项目依赖 [VoxLock](https://github.com/arbazsiddiqui/voxlock)、[GTCRN](https://github.com/Xiaobin-Rong/gtcrn)、[DPDFNet2](https://huggingface.co/Ceva-IP/DPDFNet)、[sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx)、ONNX Runtime 及其他组件；各组件的许可和版权归其作者所有。发布包中的第三方许可文件列出所含组件的授权信息。虚拟声卡驱动不属于本项目。
